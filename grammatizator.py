@@ -302,7 +302,7 @@ def main():
         )
 
         # ── Confirm ──
-        print("\n  ╔═ SETTINGS CONFIRMED ══════════════════════════════╗")
+        print("\n  ╔═ SETTINGS CONFIRMED " + "═" * 32 + "╗")
         print(f"  ║  Genre    : {genre:<40}║")
         print(f"  ║  Theme    : {theme:<40}║")
         print(f"  ║  Style    : {style:<40}║")
@@ -312,7 +312,8 @@ def main():
         temp_display = f"{min(temp, max_temp):.1f}  (pedal at {temp:.1f}, capped at {max_temp:.1f})" if temp > max_temp else f"{temp:.1f}"
         print(f"  ║  Passion  : {passion_label:<40}║")
         print(f"  ║  Temp     : {temp_display:<40}║")
-        print("  ╚═══════════════════════════════════════════════════╝")
+        print("  ╚" + "═" * 53 + "╝\n")
+
         print()
         go = input("  Pull the switch? [y/n] > ").strip().lower()
 
