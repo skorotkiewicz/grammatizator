@@ -7,6 +7,7 @@ Based on the story by Roald Dahl (1953)
 """
 
 import os
+import random
 import sys
 import time
 from openai import OpenAI
@@ -154,11 +155,18 @@ def hum_and_clatter(seconds=3):
 #  THE MACHINE
 # ─────────────────────────────────────────────
 
+def max_temperature():
+    """Temperature cap — set GRAMMATIZATOR_MAX_TEMP=1.2 to unlock the full pedal."""
+    try:
+        return float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
+    except ValueError:
+        return 1.0
+
+
 def build_prompt(genre, theme, style, magazine, length_key, passion_key):
     length_label, length_desc = LENGTH_BUTTONS[length_key]
     passion_label, passion_val, _ = PASSION_LEVELS[passion_key]   # temp handled in run_machine
 
-    import random
     obscure_words = [
         "vellichor", "sonder", "hiraeth", "logorrhea", "somnambulant",
         "epexegetically", "petrichor", "lissom", "tenebrous", "lachrymose",
@@ -225,13 +233,8 @@ def configure():
 def run_machine(client, model, genre, theme, style, magazine, length_key, passion_key):
     prompt = build_prompt(genre, theme, style, magazine, length_key, passion_key)
 
-    length_label = LENGTH_BUTTONS[length_key][0]
-    max_tokens = {"flash": 600, "short": 1400, "standard": 2500}[length_label]
-
     _, _, temperature = PASSION_LEVELS[passion_key]
-    # Cap at 1.0 for models that don't support higher — set MAX_TEMP=1.2 to unlock
-    max_temp = float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
-    temperature = min(temperature, max_temp)
+    temperature = min(temperature, max_temperature())
 
     hum_and_clatter(seconds=2)
 
@@ -248,10 +251,14 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
             stream=True,
         )
         for chunk in stream:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta.content
             if delta:
                 print(delta, end="", flush=True)
 
+    except KeyboardInterrupt:
+        print("\n\n  !! EMERGENCY STOP — Mr Bohlen grabbed the lever.")
     except Exception as e:
         print(f"\n\n  !! MACHINE FAULT: {e}")
         print("  (check your base URL and model name)")
@@ -288,7 +295,7 @@ def main():
         _, style    = pick("STYLE BUTTON   (row 3 — style)",  STYLE_BUTTONS)
         _, magazine = pick("MAGAZINE SELECTOR",               MAGAZINE_BUTTONS)
         length_key, _ = pick("LENGTH         (row 5)",        LENGTH_BUTTONS)
-        passion_key, (passion_label, _, _temp) = pick(
+        passion_key, (passion_label, _, temp) = pick(
             "PASSION PEDAL  (foot control — use carefully!)",
             PASSION_LEVELS,
             show_hint="WARNING: Mr Bohlen pressed too hard and the result was outrageous."
@@ -301,8 +308,7 @@ def main():
         print(f"  ║  Style    : {style:<40}║")
         print(f"  ║  Magazine : {magazine:<40}║")
         print(f"  ║  Length   : {LENGTH_BUTTONS[length_key][0]:<40}║")
-        _, _, temp = PASSION_LEVELS[passion_key]
-        max_temp = float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
+        max_temp = max_temperature()
         temp_display = f"{min(temp, max_temp):.1f}  (pedal at {temp:.1f}, capped at {max_temp:.1f})" if temp > max_temp else f"{temp:.1f}"
         print(f"  ║  Passion  : {passion_label:<40}║")
         print(f"  ║  Temp     : {temp_display:<40}║")
@@ -325,4 +331,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, EOFError):
+        print("\n\n  The machine falls silent. (power cut)")
+        sys.exit(130)
