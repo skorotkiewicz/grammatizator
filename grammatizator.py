@@ -236,7 +236,7 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
         # Stream the output — sheets flying from the slot one by one
         stream = client.chat.completions.create(
             model=model,
-            max_tokens=max_tokens,
+            # max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
