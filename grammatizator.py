@@ -10,6 +10,7 @@ import os
 import random
 import sys
 import time
+from math import isfinite
 from openai import OpenAI
 
 # ─────────────────────────────────────────────
@@ -21,6 +22,7 @@ from openai import OpenAI
 DEFAULT_URL   = "http://192.168.0.124:8888/v1"
 DEFAULT_KEY   = "not-needed"   # most local servers ignore this
 DEFAULT_MODEL = ""             # e.g. "mistral", "llama3", "qwen2.5"
+DEFAULT_MAX_TEMPERATURE = 1.0
 
 # ─────────────────────────────────────────────
 #  CONTROL PANEL  (Knipe's pre-selector buttons)
@@ -86,6 +88,11 @@ PASSION_LEVELS = {
     "4": ("passionate", 0.9, 1.0),
     "5": ("volcanic",   1.1, 1.2),   # warning: may come out lewd
 }
+
+OBSCURE_WORDS = (
+    "vellichor", "sonder", "hiraeth", "logorrhea", "somnambulant",
+    "epexegetically", "petrichor", "lissom", "tenebrous", "lachrymose",
+)
 
 
 # ─────────────────────────────────────────────
@@ -158,20 +165,34 @@ def hum_and_clatter(seconds=3):
 def max_temperature():
     """Temperature cap — set GRAMMATIZATOR_MAX_TEMP=1.2 to unlock the full pedal."""
     try:
-        return float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
+        value = float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", str(DEFAULT_MAX_TEMPERATURE)))
     except ValueError:
-        return 1.0
+        return DEFAULT_MAX_TEMPERATURE
+
+    if not isfinite(value) or value < 0:
+        return DEFAULT_MAX_TEMPERATURE
+    return value
+
+
+def effective_temperature(passion_key, max_temp=None):
+    """Return the actual API temperature after the safety cap is applied."""
+    _, _, temperature = PASSION_LEVELS[passion_key]
+    return min(temperature, max_temperature() if max_temp is None else max_temp)
+
+
+def connection_defaults():
+    return (
+        os.environ.get("GRAMMATIZATOR_URL") or DEFAULT_URL,
+        os.environ.get("GRAMMATIZATOR_KEY") or DEFAULT_KEY,
+        os.environ.get("GRAMMATIZATOR_MODEL") or DEFAULT_MODEL,
+    )
 
 
 def build_prompt(genre, theme, style, magazine, length_key, passion_key):
     length_label, length_desc = LENGTH_BUTTONS[length_key]
     passion_label, passion_val, _ = PASSION_LEVELS[passion_key]   # temp handled in run_machine
 
-    obscure_words = [
-        "vellichor", "sonder", "hiraeth", "logorrhea", "somnambulant",
-        "epexegetically", "petrichor", "lissom", "tenebrous", "lachrymose",
-    ]
-    obscure = random.choice(obscure_words)
+    obscure = random.choice(OBSCURE_WORDS)
 
     passion_instruction = (
         f"The passion level is {passion_label} ({passion_val:.1f}/1.1). "
@@ -207,19 +228,19 @@ Begin now. The electric typewriter is running at ten thousand words a minute.
 """
 
 
-def configure():
+def configure(default_url=DEFAULT_URL, default_key=DEFAULT_KEY, default_model=DEFAULT_MODEL):
     """Ask user for connection details at startup."""
     print("  ┌─ MACHINE CONFIGURATION ──────────────────────────────┐")
-    print(f"  │  Base URL  [{DEFAULT_URL}]")
-    print(f"  │  API key   [{DEFAULT_KEY}]")
-    print(f"  │  Model     [{DEFAULT_MODEL or 'will prompt'}]")
+    print(f"  │  Base URL  [{default_url}]")
+    print(f"  │  API key   [{default_key}]")
+    print(f"  │  Model     [{default_model or 'will prompt'}]")
     print("  │  (press Enter to accept defaults)")
     print("  └" + "─" * 53 + "┘\n")
 
-    url = input(f"  Base URL  [{DEFAULT_URL}]: ").strip() or DEFAULT_URL
-    key = input(f"  API key   [{DEFAULT_KEY}]: ").strip() or DEFAULT_KEY
+    url = input(f"  Base URL  [{default_url}]: ").strip() or default_url
+    key = input(f"  API key   [{default_key}]: ").strip() or default_key
 
-    model_default = DEFAULT_MODEL or ""
+    model_default = default_model or ""
     model_prompt = f"  Model     [{model_default}]: " if model_default else "  Model name: "
     model = input(model_prompt).strip() or model_default
     while not model:
@@ -233,8 +254,7 @@ def configure():
 def run_machine(client, model, genre, theme, style, magazine, length_key, passion_key):
     prompt = build_prompt(genre, theme, style, magazine, length_key, passion_key)
 
-    _, _, temperature = PASSION_LEVELS[passion_key]
-    temperature = min(temperature, max_temperature())
+    temperature = effective_temperature(passion_key)
 
     hum_and_clatter(seconds=2)
 
@@ -245,7 +265,6 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
         # Stream the output — sheets flying from the slot one by one
         stream = client.chat.completions.create(
             model=model,
-            # max_tokens=max_tokens,
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
@@ -272,17 +291,18 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
 #  MAIN LOOP
 # ─────────────────────────────────────────────
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
     banner()
 
     # ── Connection setup ──
-    base_url = os.environ.get("GRAMMATIZATOR_URL",   DEFAULT_URL)
-    api_key  = os.environ.get("GRAMMATIZATOR_KEY",   DEFAULT_KEY)
-    model    = os.environ.get("GRAMMATIZATOR_MODEL",  DEFAULT_MODEL)
+    base_url, api_key, model = connection_defaults()
 
     # If any value is missing or user wants to configure, prompt them
-    if not model or "--config" in sys.argv:
-        base_url, api_key, model = configure()
+    if not model or "--config" in argv:
+        base_url, api_key, model = configure(base_url, api_key, model)
 
     client = OpenAI(base_url=base_url, api_key=api_key)
 
@@ -309,7 +329,11 @@ def main():
         print(f"  ║  Magazine : {magazine:<40}║")
         print(f"  ║  Length   : {LENGTH_BUTTONS[length_key][0]:<40}║")
         max_temp = max_temperature()
-        temp_display = f"{min(temp, max_temp):.1f}  (pedal at {temp:.1f}, capped at {max_temp:.1f})" if temp > max_temp else f"{temp:.1f}"
+        effective_temp = effective_temperature(passion_key, max_temp=max_temp)
+        temp_display = (
+            f"{effective_temp:.1f}  (pedal at {temp:.1f}, capped at {max_temp:.1f})"
+            if temp > max_temp else f"{temp:.1f}"
+        )
         print(f"  ║  Passion  : {passion_label:<40}║")
         print(f"  ║  Temp     : {temp_display:<40}║")
         print("  ╚" + "═" * 53 + "╝\n")
