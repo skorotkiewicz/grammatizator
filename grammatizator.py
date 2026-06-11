@@ -76,13 +76,14 @@ LENGTH_BUTTONS = {
     "3": ("standard", "~1500 words"),
 }
 
-# passion level 1-5 (foot-pedal)
+# passion level 1-5 (two foot-pedals: content intensity + temperature)
+# (label, prompt_intensity, temperature)
 PASSION_LEVELS = {
-    "1": ("restrained", 0.3),
-    "2": ("measured",   0.5),
-    "3": ("charged",    0.7),
-    "4": ("passionate", 0.9),
-    "5": ("volcanic",   1.1),   # warning: may come out lewd
+    "1": ("restrained", 0.3, 0.4),
+    "2": ("measured",   0.5, 0.6),
+    "3": ("charged",    0.7, 0.8),
+    "4": ("passionate", 0.9, 1.0),
+    "5": ("volcanic",   1.1, 1.2),   # warning: may come out lewd
 }
 
 
@@ -155,7 +156,7 @@ def hum_and_clatter(seconds=3):
 
 def build_prompt(genre, theme, style, magazine, length_key, passion_key):
     length_label, length_desc = LENGTH_BUTTONS[length_key]
-    passion_label, passion_val = PASSION_LEVELS[passion_key]
+    passion_label, passion_val, _ = PASSION_LEVELS[passion_key]   # temp handled in run_machine
 
     import random
     obscure_words = [
@@ -166,9 +167,9 @@ def build_prompt(genre, theme, style, magazine, length_key, passion_key):
 
     passion_instruction = (
         f"The passion level is {passion_label} ({passion_val:.1f}/1.1). "
-        + ("Inject raw, almost overwhelming emotion." if passion_val >= 0.9
-           else "Keep emotion present but controlled." if passion_val >= 0.6
-           else "Keep emotion understated and restrained.")
+        + ("Inject raw, almost overwhelming emotion — desire, fury, grief, longing at full force." if passion_val >= 0.9
+           else "Keep emotion present but controlled — felt beneath the surface." if passion_val >= 0.6
+           else "Keep emotion understated and restrained — show, don't tell.")
     )
 
     return f"""You are the Great Automatic Grammatizator, an extraordinary machine built by
@@ -227,6 +228,11 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
     length_label = LENGTH_BUTTONS[length_key][0]
     max_tokens = {"flash": 600, "short": 1400, "standard": 2500}[length_label]
 
+    _, _, temperature = PASSION_LEVELS[passion_key]
+    # Cap at 1.0 for models that don't support higher — set MAX_TEMP=1.2 to unlock
+    max_temp = float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
+    temperature = min(temperature, max_temp)
+
     hum_and_clatter(seconds=2)
 
     print("─" * 64)
@@ -237,6 +243,7 @@ def run_machine(client, model, genre, theme, style, magazine, length_key, passio
         stream = client.chat.completions.create(
             model=model,
             # max_tokens=max_tokens,
+            temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
@@ -281,7 +288,7 @@ def main():
         _, style    = pick("STYLE BUTTON   (row 3 — style)",  STYLE_BUTTONS)
         _, magazine = pick("MAGAZINE SELECTOR",               MAGAZINE_BUTTONS)
         length_key, _ = pick("LENGTH         (row 5)",        LENGTH_BUTTONS)
-        passion_key, (passion_label, _) = pick(
+        passion_key, (passion_label, _, _temp) = pick(
             "PASSION PEDAL  (foot control — use carefully!)",
             PASSION_LEVELS,
             show_hint="WARNING: Mr Bohlen pressed too hard and the result was outrageous."
@@ -294,7 +301,11 @@ def main():
         print(f"  ║  Style    : {style:<40}║")
         print(f"  ║  Magazine : {magazine:<40}║")
         print(f"  ║  Length   : {LENGTH_BUTTONS[length_key][0]:<40}║")
+        _, _, temp = PASSION_LEVELS[passion_key]
+        max_temp = float(os.environ.get("GRAMMATIZATOR_MAX_TEMP", "1.0"))
+        temp_display = f"{min(temp, max_temp):.1f}  (pedal at {temp:.1f}, capped at {max_temp:.1f})" if temp > max_temp else f"{temp:.1f}"
         print(f"  ║  Passion  : {passion_label:<40}║")
+        print(f"  ║  Temp     : {temp_display:<40}║")
         print("  ╚═══════════════════════════════════════════════════╝")
         print()
         go = input("  Pull the switch? [y/n] > ").strip().lower()
